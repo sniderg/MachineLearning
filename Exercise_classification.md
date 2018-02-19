@@ -111,20 +111,30 @@ Accuracy for SVM is **0.957**. Out of sample error rate is then
 package.
 
     ## RF package prediction ##
-    modRF <- randomForest(classe ~., data = training)
+    control <- trainControl(method = "cv", number = 5)
+    modRF <- randomForest(classe ~., data = training, trControl = control)
     predRF <- predict(modRF,testing)
+
+    print(modRF,digits = 4)
+
+    ## 
+    ## Call:
+    ##  randomForest(formula = classe ~ ., data = training, trControl = control) 
+    ##                Type of random forest: classification
+    ##                      Number of trees: 500
+    ## No. of variables tried at each split: 7
+    ## 
+    ##         OOB estimate of  error rate: 0.36%
+    ## Confusion matrix:
+    ##      A    B    C    D    E  class.error
+    ## A 4462    2    0    0    0 0.0004480287
+    ## B    9 3027    2    0    0 0.0036208032
+    ## C    0   13 2722    3    0 0.0058436815
+    ## D    0    0   20 2552    1 0.0081616790
+    ## E    0    0    1    5 2880 0.0020790021
 
     # prediction accurary
     cfRF <- confusionMatrix(predRF,testing$classe)
-    cfRF$table
-
-    ##           Reference
-    ## Prediction    A    B    C    D    E
-    ##          A 1115    3    0    0    0
-    ##          B    1  754    2    0    0
-    ##          C    0    2  682    2    0
-    ##          D    0    0    0  640    0
-    ##          E    0    0    0    1  721
 
 Accuracy for RF is **0.997**. Out of sample error rate is then **0.3**%.
 Random Forest is clearly the superior of the two methods. We expect it
