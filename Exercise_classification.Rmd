@@ -108,12 +108,14 @@ Accuracy for SVM is **`r round(cfSVM$overall[1],3)`**. Out of sample error rate 
 
 ```{r ML RF}
 ## RF package prediction ##
-modRF <- randomForest(classe ~., data = training)
+control <- trainControl(method = "cv", number = 5)
+modRF <- randomForest(classe ~., data = training, trControl = control)
 predRF <- predict(modRF,testing)
+
+print(modRF,digits = 4)
 
 # prediction accurary
 cfRF <- confusionMatrix(predRF,testing$classe)
-cfRF$table
 ```
 
 Accuracy for RF is **`r round(cfRF$overall[1],3)`**. Out of sample error rate is then **`r 100*round(1 - cfRF$overall[1],3)`**%. Random Forest is clearly the superior of the two methods. We expect it will predict 100% of the 20 Quiz test cases, which was verified. Subsetting to the 13 most important variabbles (25% of total) we can see how much accuracy comes from these few variables:
