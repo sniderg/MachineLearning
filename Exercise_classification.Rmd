@@ -1,0 +1,193 @@
+---
+title: "Human activity classification"
+output: html_document
+author: Graydon Snider
+date: Feb 18, 2018
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+## Summary
+
+Six participants were asked to perform ten repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions, each measured using an accelerometer. Original dataset is credited to the [Human Activity Recognition](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) project. Five classes of activity were monitored using a pair of dumbells:
+
+ *  Class A: Performed exactly according to instructions 
+ *  Class B: Throwing the elbows to the front 
+ *  Class C: Lifting the dumbbell only halfway 
+ *  Class D: Lowering the dumbbell only halfway 
+ *  Class E: Throwing the hips to the front 
+
+Our task was to categorically assign which of the five activities were be performed by participants based on the available accelerometer activity data. It was found that the Random Forest model was the best classifier. 
+
+### Methodology 
+
+We compared the accuracy of Support Vector Machine [SVM](https://cran.r-project.org/web/packages/e1071/vignettes/svmdoc.pdf) and Ramdom Forest [RF](https://cran.r-project.org/web/packages/randomForest/randomForest.pdf) machine learning packages, for predicting exercise classes A through E. Evaluation was done through cross validating, subsetting 80% of our data, then testing on the remaining 20%. Using our best predictor (RF), we estimated the robustness of our predictors through principal component analysis (PCA) taking the top PCs and top-ranked RF variables found in our accelerometer training set. Both subsets performed better than SVM model. 
+
+
+```{r cars, results='hide', message=FALSE, warning=FALSE}
+
+#loading libraries
+library(reshape)
+library(dplyr)
+library(AppliedPredictiveModeling)
+library(e1071)
+library(randomForest)
+library(ElemStatLearn)
+library(caret)
+library(corrplot)
+library(knitr)
+
+#reproducible results
+set.seed(999)
+
+#downloading data
+if (!file.exists("pml-training.csv")){
+        url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+        download.file(url1,"pml-training.csv")
+        
+        url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+        download.file(url2,"pml-testing.csv")
+}
+
+#loading test/train, defining NAs
+trainset <- read.csv("pml-training.csv",stringsAsFactors = T, na.strings = c("NA","","#DIV/0!"))
+validation <- read.csv("pml-testing.csv",stringsAsFactors = T, na.strings = c("NA","","#DIV/0!"))
+```
+
+### Data preparation
+
+We the training dataset has `r nrow(trainset)` rows and `r ncol(trainset)` columns from which to subset for cross validation. The first 7 columns do not contain accelerometer data, but rather names and timestamps, which we do not want to include. Furthermore, several columns within appear to have NA values. We will select only numeric columns for our analysis. 
+```{r subsetting data, echo=T}
+#subset all nonzero, non-relvant values
+trainset <- trainset[,!is.na(trainset[3,])] %>% select(roll_belt:classe)
+```
+
+We are left with `r ncol(trainset)` variables. Plotting a subset of the data:
+
+```{r plotting subset, fig.width= 9, fig.height= 4, echo=FALSE}
+
+trainsetplot <- trainset[,-ncol(trainset)] %>% scale() %>% as.data.frame() %>%
+                select(seq(1,ncol(trainset),5)) %>%
+                mutate(X = 1:nrow(trainset)) %>% 
+                melt(id.vars = "X")
+
+#subsample the data (every 5th data point) and plot
+trainsetplot <- trainsetplot[seq(1,nrow(trainsetplot),5),]
+
+ggplot(trainsetplot,aes(x=X,y=value)) + geom_point(size = 0.5) + 
+        facet_wrap(~variable,scales = "free_y")
+```
+
+The data we have selected appears to show enough variance (and few outliers) to merit including in our model. Next we split our data into testing and training, and test the accuracy of the SVM model.
+
+### Machine learning evaluation: RF vs SVM
+
+Start with data preparation, dividing into our test and train groups in 80/20 ratio. 
+```{r ML setup}
+#split train set for cross validation
+trainIndex <- createDataPartition(trainset$classe, p = 0.8, list=F)
+training <- trainset[trainIndex,]
+testing <- trainset[-trainIndex,]
+```
+
+```{r ML SVM}
+## SVM package prediction ##
+modSVM <- e1071::svm(classe ~ ., data=training)
+predSVM <- predict(modSVM,testing)
+
+#SVM prediction accurary
+cfSVM <- confusionMatrix(predSVM,testing$classe)
+
+cfSVM$table
+```
+
+Accuracy for SVM is **`r round(cfSVM$overall[1],3)`**. Out of sample error rate is then **`r 100*round(1 - cfSVM$overall[1],3)`**%. Next we test the predictive power of the Random Forest package.
+
+```{r ML RF}
+## RF package prediction ##
+modRF <- randomForest(classe ~., data = training)
+predRF <- predict(modRF,testing)
+
+# prediction accurary
+cfRF <- confusionMatrix(predRF,testing$classe)
+cfRF$table
+```
+
+Accuracy for RF is **`r round(cfRF$overall[1],3)`**. Out of sample error rate is then **`r 100*round(1 - cfRF$overall[1],3)`**%. Random Forest is clearly the superior of the two methods. We expect it will predict 100% of the 20 Quiz test cases, which was verified. Subsetting to the 13 most important variabbles (25% of total) we can see how much accuracy comes from these few variables:
+
+```{r ranking RF, echo=F}
+#rank importance of variables
+importance <- caret::varImp(modRF) %>% as.data.frame() 
+importance$names <- as.character(rownames(importance))
+importance <- arrange(importance,desc(Overall))
+importance$Overall <- round(importance$Overall,0)
+
+#top 13
+kable(importance[1:13,])
+
+#RF revisited: choosing only top 20 variables
+topNames <- importance$names[1:13]
+
+modRF2 <- randomForest(classe ~., data = training[names(training) %in% c("classe",topNames)])
+predRF2 <- predict(modRF2,testing)
+
+#plot the clustering of only the top predictors
+M <- cor(training[names(training) %in% topNames])
+corrplot(M, order = "hclust", title = "Correlation plot for top RF contributors")
+
+#RF constrained  accuracy
+cfRF2 <- confusionMatrix(predRF2,testing$classe)
+```
+
+Accuracy for RF subset is **`r round(cfRF2$overall[1],3)`**, including the top 3 roll belt, yaw belt, and pitch forearm. We now compare this RF subset with a PCA subset approach (same size of subset).
+
+### Principle component analysis
+
+Rescaling and subsetting PCA data.
+
+```{r PCA1}
+#determine PCA fraction
+HAR.pca <- prcomp(training[,-ncol(training)], center = TRUE, scale. = TRUE) 
+PCArank <- summary(HAR.pca)$importance %>% t() %>% as.data.frame()
+
+#list only variables that explain up to 90% of variance
+topPredict <- sum(PCArank$`Cumulative Proportion` < 0.9)
+```
+
+Note that `r topPredict` variables explain 90% of total variance in activity data.
+
+```{r PCA2}
+#preprocess with the desired number of PC's
+preProc <- preProcess(training[,-ncol(training)],method = "pca", pcaComp = 13)
+
+#create PC matrices for test and training data
+trainPC <- predict(preProc,training[,-ncol(training)])
+testPC <- predict(preProc,testing[,-ncol(testing)])
+
+#fit the RF model with PCA variables
+modelFitPC <- randomForest(classe ~., data = data.frame(trainPC,classe = training$classe))
+
+#see how well PCA worked compared to original
+cfPCA <- confusionMatrix(testing$classe, predict(modelFitPC,testPC))
+
+cfPCA$table
+```
+
+Accuracy for PCA subset variables is **`r round(cfPCA$overall[1],3)`** using 13 variables.
+
+### Conclusion
+
+Random Forest and SVM are both capable classifiers, however the RF approach is superior, having correctly predicted all 20 results in test set (not shown for honor code purposes). Distinguishing between Class A and B appears to be the most challenging. Furthermore, subsetting RF via the 13 most important variables fared better than principle component analysis, hence both are viable compression options. 
+
+### APPENDIX
+
+Complete list of variables
+
+```{r plotting}
+
+str(trainset)
+
+```
+
