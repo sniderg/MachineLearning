@@ -7,7 +7,7 @@ date: Feb 18, 2018
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(cache = TRUE)
+
 ```
 
 ## Summary
